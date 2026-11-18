@@ -1,0 +1,71 @@
+<!-- Inverted triple pendulum on a cart.
+
+  SOURCES
+    [GYM]  Gymnasium 1.4.0, gymnasium/envs/mujoco/assets/inverted_double_pendulum.xml
+           (Farama Foundation, MIT License). Every element below is copied from
+           it unless marked OURS. https://github.com/Farama-Foundation/Gymnasium
+    [DMC]  DeepMind Control Suite, dm_control/suite/cartpole.py, _make_model(n_poles)
+           (Google DeepMind, Apache 2.0): builds multi-pole cartpoles (its
+           "three_poles" task) by appending each new pole body inside the previous
+           one, at the previous pole's tip, with its own hinge and geom:
+               child = etree.Element('body', name='pole_{}', pos='0 0 1', ...)
+               etree.SubElement(child, 'joint', name='hinge_{}')
+               etree.SubElement(child, 'geom', name='pole_{}')
+               parent.append(child); parent = child
+           https://github.com/google-deepmind/dm_control
+           We add the third pole to [GYM]'s model the same way, by hand.
+    [MJX]  MuJoCo XML reference, <custom><numeric>: named numbers stored in the
+           model (https://mujoco.readthedocs.io/en/stable/XMLreference.html#custom-numeric).
+           [GYM]'s file already uses this for frame_skip.
+
+  OUR CHOICES
+    - Pole length 0.4 m each (Gymnasium's are 0.6 m). Three 0.4 m poles put the
+      upright tip at 1.2 m, the same height as Gymnasium's two 0.6 m poles, so the
+      reward (y - 2)^2 and the termination rule (tip height <= 1) are unchanged.
+    - Start-state noise 0.05 instead of Gymnasium's 0.1, read by src/env.c from
+      the "reset_noise_scale" numeric. With 0.1, even an LQR controller (the
+      optimal linear controller, which knows the physics) balanced only 6 of 20
+      starts; with 0.05, 19 of 20 (scripts/lqr_baseline.py).
+
+  State (joint order): cart slider, hinge, hinge2, hinge3.
+  Actuator: one motor pushing the cart (control range -1..1, gear 500).
+-->
+<mujoco model="cartpole3">                                         <!-- OURS: name -->
+  <compiler coordinate="local" inertiafromgeom="true"/>
+  <custom>
+    <numeric data="2" name="frame_skip"/>
+    <numeric data="0.05" name="reset_noise_scale"/>                <!-- OURS [MJX] -->
+  </custom>
+  <default>
+    <joint damping="0.05"/>
+    <geom contype="0" friction="1 0.1 0.1" rgba="0.7 0.7 0 1"/>
+  </default>
+  <option gravity="1e-5 0 -9.81" integrator="RK4" timestep="0.01"/>
+  <size nstack="3000"/>
+  <worldbody>
+    <geom name="floor" pos="0 0 -3.0" rgba="0.8 0.9 0.8 1" size="40 40 40" type="plane"/>
+    <geom name="rail" pos="0 0 0" quat="0.707 0 0.707 0" rgba="0.3 0.3 0.7 1" size="0.02 1" type="capsule"/>
+    <body name="cart" pos="0 0 0">
+      <joint axis="1 0 0" limited="true" margin="0.01" name="slider" pos="0 0 0" range="-1 1" type="slide"/>
+      <geom name="cart" pos="0 0 0" quat="0.707 0 0.707 0" size="0.1 0.1" type="capsule"/>
+      <body name="pole" pos="0 0 0">
+        <joint axis="0 1 0" name="hinge" pos="0 0 0" type="hinge"/>
+        <!-- OURS: length 0.6 -> 0.4 (fromto end and half-length size) -->
+        <geom fromto="0 0 0 0 0 0.4" name="cpole" rgba="0 0.7 0.7 1" size="0.045 0.2" type="capsule"/>
+        <body name="pole2" pos="0 0 0.4">                        <!-- OURS: at the 0.4 m tip -->
+          <joint axis="0 1 0" name="hinge2" pos="0 0 0" type="hinge"/>
+          <geom fromto="0 0 0 0 0 0.4" name="cpole2" rgba="0 0.7 0.7 1" size="0.045 0.2" type="capsule"/>
+          <!-- Third pole: a copy of pole2, nested inside it at its tip, as [DMC] does. -->
+          <body name="pole3" pos="0 0 0.4">
+            <joint axis="0 1 0" name="hinge3" pos="0 0 0" type="hinge"/>
+            <geom fromto="0 0 0 0 0 0.4" name="cpole3" rgba="0 0.7 0.7 1" size="0.045 0.2" type="capsule"/>
+            <site name="tip" pos="0 0 .4" size="0.01 0.01"/>       <!-- [GYM]'s tip site, moved to pole3 -->
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor ctrllimited="true" ctrlrange="-1 1" gear="500" joint="slider" name="slide"/>
+  </actuator>
+</mujoco>
